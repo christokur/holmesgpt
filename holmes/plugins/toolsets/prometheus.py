@@ -1,6 +1,8 @@
 import os
 import re
 import logging
+import random
+import string
 
 from typing import Any, Optional, Union
 
@@ -8,7 +10,7 @@ import requests
 from pydantic import BaseModel
 from holmes.core.tools import StaticPrerequisite, Tool, ToolParameter, Toolset, ToolsetTag
 import json
-from pip._vendor.requests import RequestException
+from requests import RequestException
 
 from urllib.parse import urljoin
 # https://prometheus.io/docs/prometheus/latest/querying/api/#http-api
@@ -25,6 +27,8 @@ from urllib.parse import urljoin
 class PrometheusConfig(BaseModel):
     url: Union[str, None]
 
+def generate_random_key():
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=4))
 
 def filter_metrics_by_type(metrics: dict, expected_type: str):
     return {
@@ -143,7 +147,7 @@ class ListAvailableMetrics(Tool):
         except requests.Timeout:
             logging.warn("Timeout while fetching prometheus metrics", exc_info=True)
             return "Request timed out while fetching metrics"
-        except requests.RequestException as e:
+        except RequestException as e:
             logging.warn("Failed to fetch prometheus metrics", exc_info=True)
             return f"Network error while fetching metrics: {str(e)}"
         except Exception as e:
@@ -180,6 +184,7 @@ class ExecuteQuery(Tool):
 
         try:
             query = params.get("query", "")
+            description = params.get("description", "")
 
             url = urljoin(self._config.url, "/api/v1/query")
 
@@ -195,7 +200,11 @@ class ExecuteQuery(Tool):
 
             if response.status_code == 200:
                 data = response.json()
-                return json.dumps(data)
+                data["random_key"] = generate_random_key()
+                data["tool_name"] = self.name
+                data["description"] = description
+                data_str = json.dumps(data, indent=2)
+                return data_str
 
             # Handle known Prometheus error status codes
             error_msg = "Unknown error occurred"
@@ -220,7 +229,7 @@ class ExecuteQuery(Tool):
     def get_parameterized_one_liner(self, params) -> str:
         query = params.get("query")
         description = params.get("description")
-        return f'<< {{ type: "query", promQL: "{query}", description: "{description}" }} >>'
+        return f'Prometheus query. query={query}, description={description}'
 
 
 class ExecuteRangeQuery(Tool):
@@ -265,11 +274,17 @@ class ExecuteRangeQuery(Tool):
         try:
             url = urljoin(self._config.url, "/api/v1/query_range")
 
+            query = params.get("query", "")
+            start = params.get("start", "")
+            end = params.get("end", "")
+            step = params.get("step", "")
+            description = params.get("description", "")
+
             payload = {
-                "query": params.get("query", ""),
-                "start": params.get("start", ""),
-                "end": params.get("end", ""),
-                "step": params.get("step", ""),
+                "query": query,
+                "start": start,
+                "end": end,
+                "step": step,
             }
 
             response = requests.post(
@@ -280,9 +295,17 @@ class ExecuteRangeQuery(Tool):
 
             if response.status_code == 200:
                 data = response.json()
-                return json.dumps(data)
 
-            # Handle known Prometheus error status codes
+                data["random_key"] = generate_random_key()
+                data["tool_name"] = self.name
+                data["start"] = start
+                data["end"] = end
+                data["step"] = step
+                data["description"] = description
+                data_str = json.dumps(data, indent=2)
+                return data_str
+
+
             error_msg = "Unknown error occurred"
             if response.status_code in [400, 429]:
                 try:
@@ -292,7 +315,6 @@ class ExecuteRangeQuery(Tool):
                     pass
                 return f"Query execution failed. HTTP {response.status_code}: {error_msg}"
 
-            # For other status codes, just return the status code and content
             return f"Query execution failed with unexpected status code: {response.status_code}. Response: {response.content}"
 
         except RequestException as e:
@@ -308,7 +330,7 @@ class ExecuteRangeQuery(Tool):
         end = params.get("end")
         step = params.get("step")
         description = params.get("description")
-        return f'<< {{ type: "query_range", promQL: "{query}", start:"{start}", start:"{end}", step:"{step}", description: "{description}" }} >>'
+        return f'Prometheus query_range. query={query}, start={start}, end={end}, step={step}, description={description}'
 
 class PrometheusToolset(Toolset):
     def __init__(self, config:Optional[PrometheusConfig]):
