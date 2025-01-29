@@ -4,6 +4,7 @@ import os.path
 from typing import List, Optional
 
 from holmes.core.supabase_dal import SupabaseDal
+from holmes.plugins.toolsets.datetime import DatetimeToolset
 from holmes.plugins.toolsets.findings import FindingsToolset
 from holmes.plugins.toolsets.internet import InternetToolset
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from typing import Dict
 from pydantic import BaseModel
 from typing import Optional
 import yaml
+from holmes.plugins.toolsets.prometheus import PrometheusToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -31,7 +33,7 @@ def load_toolsets_from_file(path: str, silent_fail: bool = False) -> List[YAMLTo
                 toolset = YAMLToolset(**config, name=name)
                 toolset.set_path(path)
                 file_toolsets.append(YAMLToolset(**config, name=name))
-            except Exception as e:
+            except Exception:
                 if not silent_fail:
                     logging.error(f"Error happened while loading {name} toolset from {path}",
                                   exc_info=True)
@@ -41,7 +43,8 @@ def load_toolsets_from_file(path: str, silent_fail: bool = False) -> List[YAMLTo
 
 def load_python_toolsets(dal:Optional[SupabaseDal]) -> List[Toolset]:
     logging.debug("loading python toolsets")
-    return [InternetToolset(), FindingsToolset(dal)]
+
+    return [InternetToolset(), FindingsToolset(dal), PrometheusToolset(None), DatetimeToolset()]
 
 
 def load_builtin_toolsets(dal:Optional[SupabaseDal] = None) -> List[Toolset]:
