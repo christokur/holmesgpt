@@ -8,7 +8,7 @@ from typing import Any, Optional, Union
 
 import requests
 from pydantic import BaseModel
-from holmes.core.tools import StaticPrerequisite, Tool, ToolParameter, Toolset, ToolsetTag
+from holmes.core.tools import CallablePrerequisite, StaticPrerequisite, Tool, ToolParameter, Toolset, ToolsetTag
 import json
 from requests import RequestException
 
@@ -96,7 +96,7 @@ def fetch_metrics(url:str) -> dict:
     return metrics
 
 class ListAvailableMetrics(Tool):
-    def __init__(self, config: PrometheusConfig):
+    def __init__(self, toolset: PrometheusToolset):
         super().__init__(
             name="list_available_metrics",
             description="List all the available metrics to query from prometheus, including their types (counter, gauge, histogram, summary) and available labels.",
@@ -113,7 +113,7 @@ class ListAvailableMetrics(Tool):
                 ),
             },
         )
-        self._config = config
+        self._config = toolset.config
 
     def invoke(self, params: Any) -> str:
         if not self._config.url:
@@ -203,6 +203,7 @@ class ExecuteQuery(Tool):
                 data["random_key"] = generate_random_key()
                 data["tool_name"] = self.name
                 data["description"] = description
+                data["query"] = query
                 data_str = json.dumps(data, indent=2)
                 return data_str
 
@@ -298,10 +299,11 @@ class ExecuteRangeQuery(Tool):
 
                 data["random_key"] = generate_random_key()
                 data["tool_name"] = self.name
+                data["description"] = description
+                data["query"] = query
                 data["start"] = start
                 data["end"] = end
                 data["step"] = step
-                data["description"] = description
                 data_str = json.dumps(data, indent=2)
                 return data_str
 
@@ -333,21 +335,25 @@ class ExecuteRangeQuery(Tool):
         return f'Prometheus query_range. query={query}, start={start}, end={end}, step={step}, description={description}'
 
 class PrometheusToolset(Toolset):
-    def __init__(self, config:Optional[PrometheusConfig]):
-        print(f'PROMETHEUS_URL={os.environ.get("PROMETHEUS_URL")}')
-        if not config:
-            config = PrometheusConfig(url= os.environ.get("PROMETHEUS_URL"))
+    def __init__(self):
         super().__init__(
             name="prometheus",
             description="Prometheus integration to fetch metadata and execute PromQL queries",
-            icon_url="https://platform.robusta.dev/demos/internet-access.svg",
+            icon_url="https://upload.wikimedia.org/wikipedia/commons/3/38/Prometheus_software_logo.svg",
             prerequisites=[
-                StaticPrerequisite(enabled=config.url is not None, disabled_reason="Prometheus URL is not set")
+                CallablePrerequisite(callable=self.prerequisites_callable)
             ],
             tools=[
-                ListAvailableMetrics(config),
-                ExecuteQuery(config),
-                ExecuteRangeQuery(config)
+                ListAvailableMetrics(self),
+                ExecuteQuery(self),
+                ExecuteRangeQuery(self)
             ],
             tags=[ToolsetTag.CORE,]
         )
+
+    def prerequisites_callable(self, config: dict[str, Any]) -> bool:
+            if not config:
+                return False
+
+            self._config = PrometheusConfig(**config)
+            return True
