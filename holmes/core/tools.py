@@ -60,6 +60,7 @@ class ToolsetStatusEnum(str, Enum):
     DISABLED = "disabled"
     FAILED = "failed"
 
+
 class ToolsetTag(str, Enum):
     CORE = "core"
     CLUSTER = "cluster"
@@ -242,17 +243,19 @@ class Toolset(BaseModel):
             StaticPrerequisite,
             ToolsetCommandPrerequisite,
             ToolsetEnvironmentPrerequisite,
-            CallablePrerequisite
+            CallablePrerequisite,
         ]
     ] = []
     tools: List[Tool]
-    tags: List[ToolsetTag] = Field(default_factory=lambda: [ToolsetTag.CORE],)
+    tags: List[ToolsetTag] = Field(
+        default_factory=lambda: [ToolsetTag.CORE],
+    )
     config: Optional[Any] = None
     is_default: bool = False
 
-    _path: Optional[str] =  PrivateAttr(None)
-    _status: ToolsetStatusEnum =  PrivateAttr(ToolsetStatusEnum.DISABLED)
-    _error: Optional[str]  = PrivateAttr(None)
+    _path: Optional[str] = PrivateAttr(None)
+    _status: ToolsetStatusEnum = PrivateAttr(ToolsetStatusEnum.DISABLED)
+    _error: Optional[str] = PrivateAttr(None)
 
     def override_with(self, override: "ToolsetYamlFromConfig") -> None:
         """
@@ -330,9 +333,7 @@ class Toolset(BaseModel):
                     logging.debug(
                         f"Toolset {self.name} : Failed to run prereq command {prereq}; {str(e)}"
                     )
-                    self._error = (
-                        f"Prerequisites check failed with errorcode {e.returncode}: {str(e)}"
-                    )
+                    self._error = f"Prerequisites check failed with errorcode {e.returncode}: {str(e)}"
                     return
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
@@ -346,7 +347,7 @@ class Toolset(BaseModel):
                 if not prereq.enabled:
                     self._status = ToolsetStatusEnum.DISABLED
                     return
-                
+
             elif isinstance(prereq, CallablePrerequisite):
                 res = prereq.callable(self.config)
                 if not res:
@@ -398,6 +399,7 @@ class ToolExecutor:
 
     def get_all_tools_openai_format(self):
         return [tool.get_openai_format() for tool in self.tools_by_name.values()]
+
 
 class ToolsetYamlFromConfig(Toolset):
     name: str
