@@ -326,7 +326,7 @@ class Toolset(BaseModel):
                         and prereq.expected_output not in result.stdout
                     ):
                         self._status = ToolsetStatusEnum.FAILED
-                        self._error = f"Prerequisites check gave wrong output"
+                        self._error = "Prerequisites check gave wrong output"
                         return
                 except subprocess.CalledProcessError as e:
                     self._status = ToolsetStatusEnum.FAILED
@@ -355,6 +355,9 @@ class Toolset(BaseModel):
                     return
 
         self._status = ToolsetStatusEnum.ENABLED
+
+    def get_example_config(self) -> Dict[str, Any]:
+        return {}
 
 
 class YAMLToolset(Toolset):

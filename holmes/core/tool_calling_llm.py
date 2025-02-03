@@ -3,7 +3,11 @@ import json
 import logging
 import textwrap
 from typing import List, Optional, Dict, Type, Union
-from holmes.core.investigation_structured_output import DEFAULT_SECTIONS, get_output_format_for_investigation, combine_sections
+from holmes.core.investigation_structured_output import (
+    DEFAULT_SECTIONS,
+    InputSectionsDataType,
+    get_output_format_for_investigation,
+)
 from holmes.core.performance_timing import PerformanceTiming
 from holmes.utils.tags import format_tags_in_string, parse_messages_tags
 from holmes.plugins.prompts import load_and_render_prompt
@@ -30,11 +34,9 @@ class ToolCallResult(BaseModel):
 
 class LLMResult(BaseModel):
     tool_calls: Optional[List[ToolCallResult]] = None
-    sections: Optional[Dict[str, Union[str, None]]] = None
     result: Optional[str] = None
     unprocessed_result: Optional[str] = None
     instructions: List[str] = []
-
     # TODO: clean up these two
     prompt: Optional[str] = None
     messages: Optional[List[dict]] = None
@@ -57,12 +59,13 @@ class ResourceInstructionDocument(BaseModel):
 class Instructions(BaseModel):
     instructions: List[str] = []
 
+
 class ResourceInstructions(BaseModel):
     instructions: List[str] = []
     documents: List[ResourceInstructionDocument] = []
 
-class ToolCallingLLM:
 
+class ToolCallingLLM:
     llm: LLM
 
     def __init__(self, tool_executor: ToolExecutor, max_steps: int, llm: LLM):
@@ -91,7 +94,6 @@ class ToolCallingLLM:
         post_process_prompt: Optional[str] = None,
         response_format: Optional[Union[dict, Type[BaseModel]]] = None,
     ) -> LLMResult:
-
         return self.call(messages, post_process_prompt, response_format)
 
     def call(
@@ -124,7 +126,6 @@ class ToolCallingLLM:
                 )
                 perf_timing.measure("truncate_messages_to_fit_context")
 
-
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
             try:
                 full_response = self.llm.completion(
@@ -140,9 +141,8 @@ class ToolCallingLLM:
                 perf_timing.measure("llm.completion")
             # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
             except BadRequestError as e:
-                if (
-                    "Unrecognized request arguments supplied: tool_choice, tools"
-                    in str(e)
+                if "Unrecognized request arguments supplied: tool_choice, tools" in str(
+                    e
                 ):
                     raise Exception(
                         "The Azure model you chose is not supported. Model version 1106 and higher required."
@@ -159,22 +159,12 @@ class ToolCallingLLM:
 
             tools_to_call = getattr(response_message, "tool_calls", None)
             text_response = response_message.content
-            sections:Optional[Dict[str, str]] = None
-            if isinstance(text_response, str):
-                try:
-                    parsed_json = json.loads(text_response)
-                    text_response = parsed_json
-                except json.JSONDecodeError:
-                    pass
-            if not isinstance(text_response, str):
-                sections = text_response
-                text_response = combine_sections(sections)
 
             if not tools_to_call:
                 # For chatty models post process and summarize the result
                 # this only works for calls where user prompt is explicitly passed through
                 if post_process_prompt and user_prompt:
-                    logging.info(f"Running post processing on investigation.")
+                    logging.info("Running post processing on investigation.")
                     raw_response = text_response
                     post_processed_response = self._post_processing_call(
                         prompt=user_prompt,
@@ -185,7 +175,6 @@ class ToolCallingLLM:
                     perf_timing.end()
                     return LLMResult(
                         result=post_processed_response,
-                        sections=sections,
                         unprocessed_result=raw_response,
                         tool_calls=tool_calls,
                         prompt=json.dumps(messages, indent=2),
@@ -195,7 +184,6 @@ class ToolCallingLLM:
                 perf_timing.end()
                 return LLMResult(
                     result=text_response,
-                    sections=sections,
                     tool_calls=tool_calls,
                     prompt=json.dumps(messages, indent=2),
                     messages=messages,
@@ -231,7 +219,6 @@ class ToolCallingLLM:
             logging.warning(
                 f"Failed to parse arguments for tool: {tool_name}. args: {tool_to_call.function.arguments}"
             )
-
         tool_call_id = tool_to_call.id
         tool = self.tool_executor.get_tool_by_name(tool_name)
 
@@ -358,7 +345,7 @@ class IssueInvestigator(ToolCallingLLM):
         console: Optional[Console] = None,
         global_instructions: Optional[Instructions] = None,
         post_processing_prompt: Optional[str] = None,
-        sections: Optional[Dict[str, str]] = None
+        sections: Optional[InputSectionsDataType] = None,
     ) -> LLMResult:
         runbooks = self.runbook_manager.get_instructions_for_issue(issue)
 
@@ -376,9 +363,11 @@ class IssueInvestigator(ToolCallingLLM):
             console.print(
                 "[bold]No runbooks found for this issue. Using default behaviour. (Add runbooks to guide the investigation.)[/bold]"
             )
-        system_prompt = load_and_render_prompt(prompt, {"issue": issue, "sections": sections})
+        system_prompt = load_and_render_prompt(
+            prompt, {"issue": issue, "sections": sections}
+        )
 
-        if instructions != None and len(instructions.documents) > 0:
+        if instructions is not None and len(instructions.documents) > 0:
             docPrompts = []
             for document in instructions.documents:
                 docPrompts.append(
@@ -393,7 +382,11 @@ class IssueInvestigator(ToolCallingLLM):
 
             user_prompt = f'My instructions to check \n"""{user_prompt}"""'
 
-        if global_instructions and global_instructions.instructions and len(global_instructions.instructions[0]) > 0:
+        if (
+            global_instructions
+            and global_instructions.instructions
+            and len(global_instructions.instructions[0]) > 0
+        ):
             user_prompt += f"\n\nGlobal Instructions (use only if relevant): {global_instructions.instructions[0]}\n"
 
         user_prompt = f"{user_prompt}\n This is context from the issue {issue.raw}"
@@ -403,6 +396,11 @@ class IssueInvestigator(ToolCallingLLM):
         )
         logging.debug("Rendered user prompt:\n%s", textwrap.indent(user_prompt, "    "))
 
-        res = self.prompt_call(system_prompt, user_prompt, post_processing_prompt, response_format=get_output_format_for_investigation(sections))
+        res = self.prompt_call(
+            system_prompt,
+            user_prompt,
+            post_processing_prompt,
+            response_format=get_output_format_for_investigation(sections),
+        )
         res.instructions = runbooks
         return res
