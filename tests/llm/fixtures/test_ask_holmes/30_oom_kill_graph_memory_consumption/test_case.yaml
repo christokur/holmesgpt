@@ -1,0 +1,11 @@
+user_prompt: "Show me the memory usage over time for the `analytics-exporter-slow` pod"
+expected_output:
+  - 'The answer should include something similar to << { tool_name: "execute_prometheus_range_query", random_key: "XXX" } >>.'
+before_test: |
+  kubectl apply -f ./fast_oom_deployment.yaml
+  sleep 500
+after_test: |
+  kubectl delete -f ./fast_oom_deployment.yaml
+evaluation:
+  correctness: 2
+generate_mocks: True

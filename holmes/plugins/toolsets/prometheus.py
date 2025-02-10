@@ -4,28 +4,21 @@ import logging
 import random
 import string
 
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import requests
 from pydantic import BaseModel
-from holmes.core.tools import CallablePrerequisite, StaticPrerequisite, Tool, ToolParameter, Toolset, ToolsetTag
+from holmes.core.tools import CallablePrerequisite, Tool, ToolParameter, Toolset, ToolsetTag
 import json
 from requests import RequestException
 
 from urllib.parse import urljoin
-# https://prometheus.io/docs/prometheus/latest/querying/api/#http-api
-# http://localhost:9090/api/v1/series?match[]=container_network_receive_bytes_total{namespace="default"}
-
-# Imagine you're a PromQL expert. If it's relevant to the investigation, attempt to build
-# a PromQL query to visualize the issue using ONLY available PromQL metrics and not the
-# others. When constructing the query, ensure it's functional by verifying its correctness.
-# Respond strictly in the following format and nothing else:: << { type: "graph",
-# promQL: "PROMQL_HERE", description: "DESCRIPTION_HERE" } >>(Note: do NOT include any
-# explanations, comments, titles, headers or additional text, related to this query,
-# outside this format)
 
 class PrometheusConfig(BaseModel):
     url: Union[str, None]
+
+class BasePrometheusTool(Tool):
+    toolset: "PrometheusToolset"
 
 def generate_random_key():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=4))
@@ -46,7 +39,6 @@ def filter_metrics_by_name(metrics: dict, pattern: str) -> dict:
     }
 
 def fetch_metadata(url: str) -> dict:
-
     metadata_url = urljoin(url, '/api/v1/metadata')
     metadata_response = requests.get(
         metadata_url,
@@ -54,7 +46,7 @@ def fetch_metadata(url: str) -> dict:
         verify=True
     )
 
-    # TODO: Raise if not success
+    metadata_response.raise_for_status()
 
     metadata = metadata_response.json()['data']
     return metadata
@@ -67,13 +59,12 @@ def fetch_series(url: str) -> dict:
         verify=True
     )
 
-    # TODO: Raise if not success
+    series_response.raise_for_status()
 
     series = series_response.json()['data']
     return series
 
 def fetch_metrics(url:str) -> dict:
-
     metadata = fetch_metadata(url)
     series = fetch_series(url)
 
@@ -81,8 +72,10 @@ def fetch_metrics(url:str) -> dict:
     for metric_name, meta_list in metadata.items():
         if meta_list:
             metric_type = meta_list[0].get('type', 'unknown')
+            metric_description = meta_list[0].get('help', 'unknown')
             metrics[metric_name] = {
                 'type': metric_type,
+                'description': metric_description,
                 'labels': set()
             }
 
@@ -95,8 +88,8 @@ def fetch_metrics(url:str) -> dict:
 
     return metrics
 
-class ListAvailableMetrics(Tool):
-    def __init__(self, toolset: PrometheusToolset):
+class ListAvailableMetrics(BasePrometheusTool):
+    def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="list_available_metrics",
             description="List all the available metrics to query from prometheus, including their types (counter, gauge, histogram, summary) and available labels.",
@@ -112,15 +105,15 @@ class ListAvailableMetrics(Tool):
                     required=False,
                 ),
             },
+            toolset=toolset
         )
-        self._config = toolset.config
 
     def invoke(self, params: Any) -> str:
-        if not self._config.url:
+        if not self.toolset.config or not self.toolset.config.url:
             return "Prometheus is not configured. Prometheus URL is missing"
         try:
 
-            prometheus_url = self._config.url
+            prometheus_url = self.toolset.config.url
 
             if not prometheus_url:
                 return "Prometheus is not configured. Prometheus URL is missing"
@@ -133,16 +126,15 @@ class ListAvailableMetrics(Tool):
             if params.get("type_filter"):
                 metrics = filter_metrics_by_type(metrics, params.get("type_filter"))
 
-            logging.info(f"Using prometheus URL {self._config.url}")
-
-            output = ["Metric | Type | Labels"]
-            output.append("-" * 100)  # Separator line
+            output = ["Metric | Type | Description | Labels"]
+            output.append("-" * 100)
 
             for metric, info in sorted(metrics.items()):
                 labels_str = ", ".join(sorted(info['labels'])) if info['labels'] else "none"
-                output.append(f"{metric} | {info['type']} | {labels_str}")
+                output.append(f"{metric} | {info['type']} | {info['description']} | {labels_str}")
 
-            return "\n".join(output)
+            table_output = "\n".join(output)
+            return table_output
 
         except requests.Timeout:
             logging.warn("Timeout while fetching prometheus metrics", exc_info=True)
@@ -158,8 +150,8 @@ class ListAvailableMetrics(Tool):
         return f'list available prometheus metrics: name_filter="{params.get("name_filter", "<no filter>")}", type_filter="{params.get("type_filter", "<no filter>")}"'
 
 
-class ExecuteQuery(Tool):
-    def __init__(self, config:PrometheusConfig):
+class ExecuteQuery(BasePrometheusTool):
+    def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="execute_prometheus_query",
             description="Execute a PromQL query",
@@ -175,18 +167,18 @@ class ExecuteQuery(Tool):
                     required=True,
                 )
             },
+            toolset=toolset
         )
-        self._config = config
 
     def invoke(self, params: Any) -> str:
-        if not self._config.url:
+        if not self.toolset.config or not self.toolset.config.url:
             return "Prometheus is not configured. Prometheus URL is missing"
-
         try:
+
             query = params.get("query", "")
             description = params.get("description", "")
 
-            url = urljoin(self._config.url, "/api/v1/query")
+            url = urljoin(self.toolset.config.url, "/api/v1/query")
 
             payload = {
                 "query": query
@@ -233,8 +225,8 @@ class ExecuteQuery(Tool):
         return f'Prometheus query. query={query}, description={description}'
 
 
-class ExecuteRangeQuery(Tool):
-    def __init__(self, config:PrometheusConfig):
+class ExecuteRangeQuery(BasePrometheusTool):
+    def __init__(self, toolset: "PrometheusToolset"):
         super().__init__(
             name="execute_prometheus_range_query",
             description="Execute a PromQL range query",
@@ -265,15 +257,15 @@ class ExecuteRangeQuery(Tool):
                     required=True,
                 )
             },
+            toolset=toolset
         )
-        self._config = config
 
     def invoke(self, params: Any) -> str:
-        if not self._config.url:
+        if not self.toolset.config or not self.toolset.config.url:
             return "Prometheus is not configured. Prometheus URL is missing"
 
         try:
-            url = urljoin(self._config.url, "/api/v1/query_range")
+            url = urljoin(self.toolset.config.url, "/api/v1/query_range")
 
             query = params.get("query", "")
             start = params.get("start", "")
@@ -344,16 +336,19 @@ class PrometheusToolset(Toolset):
                 CallablePrerequisite(callable=self.prerequisites_callable)
             ],
             tools=[
-                ListAvailableMetrics(self),
-                ExecuteQuery(self),
-                ExecuteRangeQuery(self)
+                ListAvailableMetrics(toolset=self),
+                ExecuteQuery(toolset=self),
+                ExecuteRangeQuery(toolset=self)
             ],
             tags=[ToolsetTag.CORE,]
         )
 
     def prerequisites_callable(self, config: dict[str, Any]) -> bool:
-            if not config:
-                return False
-
-            self._config = PrometheusConfig(**config)
+        if not config and not os.environ.get("PROMETHEUS_URL", None):
+            return False
+        elif not config and os.environ.get("PROMETHEUS_URL", None):
+            self.config = PrometheusConfig(url=os.environ.get("PROMETHEUS_URL"))
+            return True
+        else:
+            self.config = PrometheusConfig(**config)
             return True

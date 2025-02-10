@@ -18,9 +18,10 @@ from tests.llm.utils.mock_utils import AskHolmesTestCase, MockHelper
 from tests.llm.utils.system import get_machine_state_tags
 from os import path
 
-TEST_CASES_FOLDER = Path(
-    path.abspath(path.join(path.dirname(__file__), "fixtures", "test_ask_holmes"))
-)
+TEST_CASES_FOLDER = Path(path.abspath(path.join(
+    path.dirname(__file__),
+    "fixtures", "test_ask_holmes"
+)))
 
 system_metadata = get_machine_state_tags()
 DATASET_NAME = f"ask_holmes:{system_metadata.get('branch', 'unknown_branch')}"
@@ -124,6 +125,7 @@ def ask_holmes(test_case: AskHolmesTestCase) -> LLMResult:
             expected_tools.append(tool_mock.tool_name)
 
     tool_executor = ToolExecutor(mock.mocked_toolsets)
+
     ai = ToolCallingLLM(
         tool_executor=tool_executor,
         max_steps=10,

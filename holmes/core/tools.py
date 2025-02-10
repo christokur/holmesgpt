@@ -394,7 +394,7 @@ class ToolExecutor:
         tool = self.get_tool_by_name(tool_name)
         return tool.invoke(params) if tool else ""
 
-    def get_tool_by_name(self, name: str) -> Optional[YAMLTool]:
+    def get_tool_by_name(self, name: str) -> Optional[Tool]:
         if name in self.tools_by_name:
             return self.tools_by_name[name]
         logging.warning(f"could not find tool {name}. skipping")

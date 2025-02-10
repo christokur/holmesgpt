@@ -120,6 +120,10 @@ class MockToolsets:
 
     def __init__(self, test_case_folder: str, generate_mocks: bool = True) -> None:
         self.unmocked_toolsets = load_builtin_toolsets()
+
+        for toolset in self.unmocked_toolsets:
+            toolset.check_prerequisites()
+
         self.generate_mocks = generate_mocks
         self.test_case_folder = test_case_folder
         self._mocks = []
