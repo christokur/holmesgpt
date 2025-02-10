@@ -1,7 +1,7 @@
 from holmes.core.tools import ToolsetTag
 from typing import Dict
 from holmes.core.tools import Tool, Toolset
-from datetime import datetime
+import datetime
 
 class CurrentTime(Tool):
     def __init__(self):
@@ -13,7 +13,7 @@ class CurrentTime(Tool):
         )
 
     def invoke(self, params: Dict) -> str:
-        now = datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         return f"The current UTC date and time are {now}. The current UTC timestamp in seconds is {int(now.timestamp())}."
 
     def get_parameterized_one_liner(self, params) -> str:

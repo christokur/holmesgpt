@@ -100,9 +100,9 @@ class ListAvailableMetrics(BasePrometheusTool):
                     required=False,
                 ),
                 "name_filter": ToolParameter(
-                    description="Optional regular expression to only return matching metric names",
+                    description="Regular expression to only return matching metric names",
                     type="string",
-                    required=False,
+                    required=True,
                 ),
             },
             toolset=toolset
@@ -126,12 +126,12 @@ class ListAvailableMetrics(BasePrometheusTool):
             if params.get("type_filter"):
                 metrics = filter_metrics_by_type(metrics, params.get("type_filter"))
 
-            output = ["Metric | Type | Description | Labels"]
+            output = ["Metric | Description | Type | Labels"]
             output.append("-" * 100)
 
             for metric, info in sorted(metrics.items()):
                 labels_str = ", ".join(sorted(info['labels'])) if info['labels'] else "none"
-                output.append(f"{metric} | {info['type']} | {info['description']} | {labels_str}")
+                output.append(f"{metric} | {info['description']} | {info['type']} | {labels_str}")
 
             table_output = "\n".join(output)
             return table_output
